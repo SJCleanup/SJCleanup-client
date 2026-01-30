@@ -402,6 +402,21 @@
             font-size: 14px;
         }
 
+        /* Photo Gallery */
+        .job-photos { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gray-200); }
+        .job-photos-title { font-size: 11px; color: var(--gray-500); text-transform: uppercase; font-weight: 600; margin-bottom: 12px; }
+        .job-photos-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .job-photos-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer; transition: transform 0.15s; }
+        .job-photos-grid img:hover { transform: scale(1.05); }
+        .job-photo-type { font-size: 10px; text-transform: uppercase; color: var(--gray-500); font-weight: 600; margin: 12px 0 6px; }
+
+        /* Lightbox */
+        .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 2000; align-items: center; justify-content: center; flex-direction: column; }
+        .lightbox.show { display: flex; }
+        .lightbox img { max-width: 90vw; max-height: 80vh; border-radius: 8px; }
+        .lightbox-caption { color: white; font-size: 14px; margin-top: 12px; }
+        .lightbox-close { position: absolute; top: 16px; right: 16px; background: none; border: none; color: white; font-size: 32px; cursor: pointer; }
+
         /* Profile Section */
         .profile-section { margin-bottom: 24px; }
         .profile-section-title { font-size: 11px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
@@ -672,6 +687,13 @@
         </div>
     </div>
 
+    <!-- Lightbox -->
+    <div class="lightbox" id="photoLightbox" onclick="closeLightbox()">
+        <button class="lightbox-close" onclick="closeLightbox()">×</button>
+        <img id="lightboxImg" src="" alt="Photo">
+        <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
@@ -683,6 +705,7 @@
         let allJobs = [];
         let selectedFiles = [];
         let authToken = localStorage.getItem('client_token') || null;
+        let pollInterval = null;
 
         // Utilities
         function showToast(msg, type = 'success') {
@@ -745,6 +768,7 @@
                     localStorage.setItem('client_token', authToken);
                     showMainApp();
                     loadDashboard();
+                    startPolling();
                 } else {
                     err.textContent = data.message || 'Invalid PIN';
                     err.style.display = 'block';
@@ -769,6 +793,37 @@
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('mainApp').classList.add('active');
             document.getElementById('userName').textContent = currentCustomer.name || currentCustomer.company || 'Client';
+        }
+
+        // Real-time polling (every 30s)
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(refreshData, 30000);
+        }
+
+        async function refreshData() {
+            if (!currentCustomer) return;
+            try {
+                const res = await authFetch(`${API_BASE}/client/jobs?customer_id=${currentCustomer.id}`);
+                const data = await res.json();
+                const newJobs = data.jobs || [];
+                // Check if any statuses changed
+                const changed = newJobs.some(nj => {
+                    const old = allJobs.find(j => j.id === nj.id);
+                    return !old || old.status !== nj.status || old.payment_status !== nj.payment_status;
+                }) || newJobs.length !== allJobs.length;
+                if (!changed) return;
+                allJobs = newJobs;
+                // Refresh whichever tab is active
+                const activeTab = document.querySelector('.tab-content.active');
+                if (activeTab) {
+                    const tabId = activeTab.id.replace('Tab', '');
+                    if (tabId === 'dashboard') loadDashboard();
+                    else if (tabId === 'jobs') loadJobs();
+                    else if (tabId === 'quotes') loadQuotes();
+                    else if (tabId === 'payments') loadPayments();
+                }
+            } catch (_) { /* silent fail on poll */ }
         }
 
         // Tabs
@@ -1148,7 +1203,7 @@
         }
 
         // Job Detail View
-        function viewJobDetail(id) {
+        async function viewJobDetail(id) {
             const job = allJobs.find(j => j.id === id);
             if (!job) return;
             document.getElementById('jobDetailTitle').textContent = `Job #${job.id}`;
@@ -1210,12 +1265,57 @@
                     <div style="font-size:14px;background:var(--gray-50);padding:10px;border-radius:8px;">${job.special_instructions}</div>
                 </div>` : ''}
                 ${timelineHtml}
+                <div class="job-photos" id="jobPhotosSection">
+                    <div class="job-photos-title">Photos</div>
+                    <div style="color:var(--gray-400);font-size:13px;">Loading photos...</div>
+                </div>
             `;
             document.getElementById('jobDetailModal').classList.add('show');
+
+            // Fetch photos asynchronously
+            try {
+                const res = await authFetch(`${API_BASE}/customer/view-photos?job_id=${job.id}`);
+                const data = await res.json();
+                const photos = data.photos || data || [];
+                const section = document.getElementById('jobPhotosSection');
+                if (!Array.isArray(photos) || photos.length === 0) {
+                    section.innerHTML = '<div class="job-photos-title">Photos</div><div style="color:var(--gray-400);font-size:13px;">No photos available for this job</div>';
+                    return;
+                }
+                const grouped = {};
+                photos.forEach(p => {
+                    const type = p.photo_type || 'other';
+                    if (!grouped[type]) grouped[type] = [];
+                    grouped[type].push(p);
+                });
+                let html = '<div class="job-photos-title">Photos</div>';
+                for (const [type, items] of Object.entries(grouped)) {
+                    html += `<div class="job-photo-type">${formatStatus(type)} (${items.length})</div>`;
+                    html += '<div class="job-photos-grid">';
+                    items.forEach(p => {
+                        const url = p.xano_file_url || p.cloudinary_url || p.file_url || '';
+                        if (url) html += `<img src="${url}" alt="${type}" onclick="openLightbox('${url}', '${formatStatus(type)} - Job #${job.id}')">`;
+                    });
+                    html += '</div>';
+                }
+                section.innerHTML = html;
+            } catch (e) {
+                const section = document.getElementById('jobPhotosSection');
+                if (section) section.innerHTML = '<div class="job-photos-title">Photos</div><div style="color:var(--gray-400);font-size:13px;">Could not load photos</div>';
+            }
         }
 
         function closeModal(id) {
             document.getElementById(id).classList.remove('show');
+        }
+
+        function openLightbox(url, caption) {
+            document.getElementById('lightboxImg').src = url;
+            document.getElementById('lightboxCaption').textContent = caption || '';
+            document.getElementById('photoLightbox').classList.add('show');
+        }
+        function closeLightbox() {
+            document.getElementById('photoLightbox').classList.remove('show');
         }
 
         // Init
@@ -1225,6 +1325,7 @@
                 currentCustomer = JSON.parse(saved);
                 showMainApp();
                 loadDashboard();
+                startPolling();
             }
             document.getElementById('pinInput').addEventListener('keypress', e => {
                 if (e.key === 'Enter') login();
