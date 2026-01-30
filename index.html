@@ -652,6 +652,7 @@
         let currentCustomer = null;
         let allJobs = [];
         let selectedFiles = [];
+        let authToken = localStorage.getItem('client_token') || null;
 
         // Utilities
         function showToast(msg, type = 'success') {
@@ -659,6 +660,16 @@
             t.textContent = msg;
             t.className = 'toast show ' + type;
             setTimeout(() => t.className = 'toast', 3000);
+        }
+
+        function authFetch(url, options = {}) {
+            if (authToken) {
+                options.headers = options.headers || {};
+                if (typeof options.headers === 'object' && !Array.isArray(options.headers)) {
+                    options.headers['Authorization'] = 'Bearer ' + authToken;
+                }
+            }
+            return fetch(url, options);
         }
 
         function formatCurrency(amt) {
@@ -700,6 +711,8 @@
                         company: data.company
                     };
                     localStorage.setItem('client_user', JSON.stringify(currentCustomer));
+                    authToken = data.authToken;
+                    localStorage.setItem('client_token', authToken);
                     showMainApp();
                     loadDashboard();
                 } else {
@@ -714,6 +727,8 @@
 
         function logout() {
             localStorage.removeItem('client_user');
+            localStorage.removeItem('client_token');
+            authToken = null;
             currentCustomer = null;
             document.getElementById('mainApp').classList.remove('active');
             document.getElementById('loginScreen').classList.remove('hidden');
@@ -743,7 +758,7 @@
         // Dashboard
         async function loadDashboard() {
             try {
-                const res = await fetch(`${API_BASE}/client/jobs?customer_id=${currentCustomer.id}`);
+                const res = await authFetch(`${API_BASE}/client/jobs?customer_id=${currentCustomer.id}`);
                 const data = await res.json();
                 allJobs = data.jobs || [];
 
@@ -868,7 +883,7 @@
 
         async function approveQuote(jobId) {
             try {
-                const res = await fetch(`${API_BASE}/client/approve-quote`, {
+                const res = await authFetch(`${API_BASE}/client/approve-quote`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ job_id: jobId, customer_id: currentCustomer.id })
@@ -891,7 +906,7 @@
             if (!confirm('Are you sure you want to decline this quote?')) return;
             
             try {
-                const res = await fetch(`${API_BASE}/client/decline-quote`, {
+                const res = await authFetch(`${API_BASE}/client/decline-quote`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ job_id: jobId, customer_id: currentCustomer.id })
@@ -913,7 +928,7 @@
         // Payments
         async function loadPayments() {
             try {
-                const res = await fetch(`${API_BASE}/client/payments?customer_id=${currentCustomer.id}`);
+                const res = await authFetch(`${API_BASE}/client/payments?customer_id=${currentCustomer.id}`);
                 const data = await res.json();
                 const payments = data.payments || [];
 
@@ -945,7 +960,7 @@
         // Profile
         async function loadProfile() {
             try {
-                const res = await fetch(`${API_BASE}/client/profile?customer_id=${currentCustomer.id}`);
+                const res = await authFetch(`${API_BASE}/client/profile?customer_id=${currentCustomer.id}`);
                 const data = await res.json();
                 const profile = data.customer || {};
 
@@ -963,7 +978,7 @@
 
         async function saveProfile() {
             try {
-                const res = await fetch(`${API_BASE}/client/save-profile`, {
+                const res = await authFetch(`${API_BASE}/client/save-profile`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -988,7 +1003,7 @@
 
         async function saveAddress() {
             try {
-                const res = await fetch(`${API_BASE}/client/save-profile`, {
+                const res = await authFetch(`${API_BASE}/client/save-profile`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1055,7 +1070,7 @@
                     for (const file of selectedFiles) {
                         const formData = new FormData();
                         formData.append('file', file);
-                        const uploadRes = await fetch(`${UPLOAD_API}/upload/file`, {
+                        const uploadRes = await authFetch(`${UPLOAD_API}/upload/file`, {
                             method: 'POST',
                             body: formData
                         });
@@ -1066,7 +1081,7 @@
                     }
                 }
 
-                const res = await fetch(`${API_BASE}/client/request-quote`, {
+                const res = await authFetch(`${API_BASE}/client/request-quote`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
