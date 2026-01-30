@@ -933,7 +933,7 @@
                 const payments = data.payments || [];
 
                 // Calculate outstanding balance
-                const unpaidJobs = allJobs.filter(j => j.status === 'completed' && !j.paid);
+                const unpaidJobs = allJobs.filter(j => j.status === 'completed' && j.payment_status !== 'paid');
                 const outstanding = unpaidJobs.reduce((sum, j) => sum + (j.price_customer || 0), 0);
                 document.getElementById('outstandingBalance').textContent = formatCurrency(outstanding);
 
