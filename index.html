@@ -763,9 +763,9 @@
                 allJobs = data.jobs || [];
 
                 // Calculate stats
-                const activeJobs = allJobs.filter(j => ['scheduled', 'dispatched', 'in_progress', 'confirmed'].includes(j.status));
+                const activeJobs = allJobs.filter(j => ['dispatched', 'confirmed', 'in_progress', 'pending_verification', 'pending_assignment'].includes(j.status));
                 const pendingQuotes = allJobs.filter(j => j.status === 'quote_sent' || j.status === 'pending');
-                const completed = allJobs.filter(j => j.status === 'completed' || j.status === 'verified');
+                const completed = allJobs.filter(j => j.status === 'completed');
 
                 document.getElementById('statActiveJobs').textContent = activeJobs.length;
                 document.getElementById('statPendingQuotes').textContent = pendingQuotes.length;
