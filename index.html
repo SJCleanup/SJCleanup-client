@@ -661,6 +661,17 @@
         </div>
     </div>
 
+    <!-- Job Detail Modal -->
+    <div class="modal" id="jobDetailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="jobDetailTitle">Job Details</h3>
+                <button class="modal-close" onclick="closeModal('jobDetailModal')">×</button>
+            </div>
+            <div class="modal-body" id="jobDetailBody"></div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
@@ -858,7 +869,7 @@
             }
 
             container.innerHTML = allJobs.filter(j => !['quote_sent', 'pending', 'rejected'].includes(j.status)).map(job => `
-                <div class="job-item">
+                <div class="job-item" style="cursor:pointer;" onclick="viewJobDetail(${job.id})">
                     <div class="job-info">
                         <div class="job-type">${formatStatus(job.job_type)} Clean</div>
                         <div class="job-address">${job.address || ''}, ${job.city || ''}</div>
@@ -1134,6 +1145,73 @@
             } catch (e) {
                 showToast('Connection error', 'error');
             }
+        }
+
+        // Job Detail View
+        function viewJobDetail(id) {
+            const job = allJobs.find(j => j.id === id);
+            if (!job) return;
+            document.getElementById('jobDetailTitle').textContent = `Job #${job.id}`;
+
+            const timeline = [];
+            if (job.created_at) timeline.push({ label: 'Requested', date: job.created_at });
+            if (job.dispatched_at) timeline.push({ label: 'Crew Dispatched', date: job.dispatched_at });
+            if (job.started_at) timeline.push({ label: 'Work Started', date: job.started_at });
+            if (job.completed_at) timeline.push({ label: 'Work Completed', date: job.completed_at });
+            if (job.verified_at) timeline.push({ label: 'Verified', date: job.verified_at });
+
+            const timelineHtml = timeline.length > 0 ? `
+                <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-200);">
+                    <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;font-weight:600;margin-bottom:12px;">Timeline</div>
+                    ${timeline.map(t => `
+                        <div style="display:flex;gap:12px;margin-bottom:10px;align-items:flex-start;">
+                            <div style="width:8px;height:8px;border-radius:50%;background:var(--orange);margin-top:5px;flex-shrink:0;"></div>
+                            <div>
+                                <div style="font-weight:500;font-size:14px;">${t.label}</div>
+                                <div style="font-size:12px;color:var(--gray-500);">${new Date(t.date).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+
+            document.getElementById('jobDetailBody').innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <div style="font-size:18px;font-weight:600;">${formatStatus(job.job_type)} Clean</div>
+                    <span class="status-badge status-${job.status}">${formatStatus(job.status)}</span>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Address</div>
+                    <div style="font-size:15px;">${job.address || '-'}${job.city ? ', ' + job.city : ''}${job.state ? ', ' + job.state : ''} ${job.zip || ''}</div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Square Footage</div>
+                        <div style="font-size:15px;">${job.sq_footage?.toLocaleString() || '-'}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Price</div>
+                        <div style="font-size:18px;font-weight:600;color:var(--green);">${formatCurrency(job.price_customer)}</div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div>
+                        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Scheduled Date</div>
+                        <div style="font-size:15px;">${formatDate(job.scheduled_date)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Payment</div>
+                        <div style="font-size:15px;">${formatStatus(job.payment_status || 'unpaid')}</div>
+                    </div>
+                </div>
+                ${job.special_instructions ? `
+                <div style="margin-top:12px;">
+                    <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px;">Special Instructions</div>
+                    <div style="font-size:14px;background:var(--gray-50);padding:10px;border-radius:8px;">${job.special_instructions}</div>
+                </div>` : ''}
+                ${timelineHtml}
+            `;
+            document.getElementById('jobDetailModal').classList.add('show');
         }
 
         function closeModal(id) {
