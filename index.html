@@ -429,7 +429,95 @@
             .job-item { flex-direction: column; align-items: flex-start; gap: 12px; }
             .quote-header { flex-direction: column; gap: 8px; }
         }
+        /* Payment Modal */
+        .payment-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .payment-modal.show { display: flex; }
+        .payment-box {
+            background: #fff;
+            border-radius: 16px;
+            max-width: 450px;
+            width: 100%;
+            padding: 24px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .payment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .payment-header h3 { font-size: 20px; font-weight: 600; }
+        .payment-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--gray-500);
+        }
+        .payment-summary {
+            background: var(--gray-50);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .payment-summary .amount {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--orange);
+        }
+        #payment-element {
+            min-height: 120px;
+            margin-bottom: 20px;
+        }
+        .pay-btn {
+            width: 100%;
+            background: var(--orange);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .pay-btn:hover { background: var(--orange-dark); }
+        .pay-btn:disabled {
+            background: var(--gray-300);
+            cursor: not-allowed;
+        }
+        #payment-message {
+            color: var(--red);
+            text-align: center;
+            margin-top: 12px;
+            display: none;
+        }
+        .btn-pay {
+            background: var(--green);
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 12px;
+        }
+        .btn-pay:hover { background: #16a34a; }
     </style>
+    <script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
     <!-- Login Screen -->
@@ -694,6 +782,24 @@
         <div class="lightbox-caption" id="lightboxCaption"></div>
     </div>
 
+    <!-- Payment Modal -->
+    <div class="payment-modal" id="paymentModal">
+        <div class="payment-box">
+            <div class="payment-header">
+                <h3>Complete Payment</h3>
+                <button class="payment-close" onclick="closePaymentModal()">&times;</button>
+            </div>
+            <div class="payment-summary">
+                <div style="color: var(--gray-600); font-size: 14px;">Amount Due</div>
+                <div class="amount" id="paymentAmount">$0.00</div>
+                <div style="color: var(--gray-500); font-size: 13px; margin-top: 8px;" id="paymentJobInfo">Job #0</div>
+            </div>
+            <div id="payment-element"></div>
+            <button class="pay-btn" id="payBtn" onclick="submitPayment()">Pay Now</button>
+            <div id="payment-message"></div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
@@ -715,14 +821,62 @@
             setTimeout(() => t.className = 'toast', 3000);
         }
 
-        function authFetch(url, options = {}) {
+        // Enhanced authFetch with proper error handling
+        async function authFetch(url, options = {}) {
             if (authToken) {
                 options.headers = options.headers || {};
                 if (typeof options.headers === 'object' && !Array.isArray(options.headers)) {
                     options.headers['Authorization'] = 'Bearer ' + authToken;
                 }
             }
-            return fetch(url, options);
+
+            // Add timeout (15 seconds)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            options.signal = controller.signal;
+
+            try {
+                const response = await fetch(url, options);
+                clearTimeout(timeoutId);
+
+                // Handle HTTP error statuses
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        showToast('Session expired - please log in again', 'error');
+                        setTimeout(() => logout(), 1500);
+                        throw new Error('SESSION_EXPIRED');
+                    }
+                    if (response.status === 403) {
+                        throw new Error('You do not have permission for this action');
+                    }
+                    if (response.status === 404) {
+                        throw new Error('Resource not found');
+                    }
+                    if (response.status >= 500) {
+                        throw new Error('Server error - please try again later');
+                    }
+                    try {
+                        const errData = await response.json();
+                        throw new Error(errData.message || `Request failed (${response.status})`);
+                    } catch (e) {
+                        if (e.message !== 'SESSION_EXPIRED') {
+                            throw new Error(`Request failed (${response.status})`);
+                        }
+                        throw e;
+                    }
+                }
+
+                return response;
+            } catch (err) {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    throw new Error('Request timed out - check your connection');
+                }
+                if (err.message === 'Failed to fetch' || err.message === 'NetworkError') {
+                    throw new Error('Network error - check your internet connection');
+                }
+                throw err;
+            }
         }
 
         function formatCurrency(amt) {
@@ -738,11 +892,75 @@
             return (s || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
 
+        // Input validation utilities
+        const validators = {
+            required: (v) => v !== null && v !== undefined && v.toString().trim() !== '',
+            email: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+            phone: (v) => !v || /^[\d\s\-\(\)\+]{10,}$/.test(v.replace(/\D/g, '')),
+            zip: (v) => !v || /^\d{5}(-\d{4})?$/.test(v),
+            positiveNumber: (v) => !v || (Number(v) > 0)
+        };
+
+        function validateForm(fields) {
+            let isValid = true;
+            let firstError = null;
+
+            fields.forEach(({ id, rules, label }) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const value = el.type === 'checkbox' ? el.checked : el.value;
+                let fieldValid = true;
+
+                rules.forEach(rule => {
+                    if (rule === 'required' && !validators.required(value)) fieldValid = false;
+                    else if (rule === 'email' && !validators.email(value)) fieldValid = false;
+                    else if (rule === 'phone' && !validators.phone(value)) fieldValid = false;
+                    else if (rule === 'zip' && !validators.zip(value)) fieldValid = false;
+                    else if (rule === 'positiveNumber' && !validators.positiveNumber(value)) fieldValid = false;
+                });
+
+                el.style.borderColor = fieldValid ? '' : '#ef4444';
+                if (!fieldValid) {
+                    isValid = false;
+                    if (!firstError) firstError = label || id;
+                }
+            });
+
+            if (!isValid && firstError) {
+                showToast(`Please check: ${firstError}`, 'error');
+            }
+            return isValid;
+        }
+
+        // Session timeout management (30 min inactivity)
+        const SESSION_TIMEOUT = 30 * 60 * 1000;
+        let sessionTimer = null;
+        let lastActivity = Date.now();
+
+        function resetSessionTimer() {
+            lastActivity = Date.now();
+            if (sessionTimer) clearTimeout(sessionTimer);
+            if (authToken) {
+                sessionTimer = setTimeout(() => {
+                    showToast('Session expired due to inactivity', 'error');
+                    setTimeout(() => logout(), 1500);
+                }, SESSION_TIMEOUT);
+            }
+        }
+
+        ['click', 'keypress', 'scroll', 'touchstart'].forEach(event => {
+            document.addEventListener(event, () => {
+                if (authToken && Date.now() - lastActivity > 60000) {
+                    resetSessionTimer();
+                }
+            }, { passive: true });
+        });
+
         // Login
         async function login() {
             const pin = document.getElementById('pinInput').value;
             const err = document.getElementById('loginError');
-            
+
             if (!pin || pin.length < 4) {
                 err.textContent = 'Please enter your PIN';
                 err.style.display = 'block';
@@ -766,6 +984,7 @@
                     localStorage.setItem('client_user', JSON.stringify(currentCustomer));
                     authToken = data.authToken;
                     localStorage.setItem('client_token', authToken);
+                    resetSessionTimer(); // Start session timer
                     showMainApp();
                     loadDashboard();
                     startPolling();
@@ -969,6 +1188,12 @@
                             <button class="btn btn-outline" onclick="declineQuote(${job.id})">Decline</button>
                         </div>
                     ` : ''}
+                    ${(job.status === 'approved' || job.status === 'scheduled' || job.status === 'pending_payment') && job.payment_status !== 'paid' ? `
+                        <button class="btn-pay" onclick="openPaymentModal(${job.id}, ${job.price_customer})">Pay Now - ${formatCurrency(job.price_customer)}</button>
+                    ` : ''}
+                    ${job.payment_status === 'paid' ? `
+                        <div style="color: var(--green); font-weight: 500; margin-top: 12px;">&#10003; Paid</div>
+                    ` : ''}
                 </div>
             `).join('');
         }
@@ -1141,6 +1366,15 @@
         }
 
         async function submitQuote() {
+            // Validate required fields
+            const isValid = validateForm([
+                { id: 'quoteAddress', rules: ['required'], label: 'Address' },
+                { id: 'quoteCity', rules: ['required'], label: 'City' },
+                { id: 'quoteZip', rules: ['zip'], label: 'ZIP Code' },
+                { id: 'quoteSqFt', rules: ['required', 'positiveNumber'], label: 'Square Footage' }
+            ]);
+            if (!isValid) return;
+
             const serviceType = document.getElementById('quoteServiceType').value;
             const address = document.getElementById('quoteAddress').value;
             const city = document.getElementById('quoteCity').value;
@@ -1148,11 +1382,6 @@
             const sqFt = document.getElementById('quoteSqFt').value;
             const date = document.getElementById('quoteDate').value;
             const notes = document.getElementById('quoteNotes').value;
-
-            if (!address || !sqFt) {
-                showToast('Please fill in address and square footage', 'error');
-                return;
-            }
 
             try {
                 // Upload files first if any
@@ -1318,15 +1547,162 @@
             document.getElementById('photoLightbox').classList.remove('show');
         }
 
-        // Init
-        document.addEventListener('DOMContentLoaded', () => {
-            const saved = localStorage.getItem('client_user');
-            if (saved) {
-                currentCustomer = JSON.parse(saved);
-                showMainApp();
-                loadDashboard();
-                startPolling();
+        // Stripe Payment
+        let stripe = null;
+        let elements = null;
+        let paymentJobId = null;
+
+        async function openPaymentModal(jobId, amount) {
+            paymentJobId = jobId;
+            document.getElementById('paymentAmount').textContent = formatCurrency(amount);
+            document.getElementById('paymentJobInfo').textContent = `Job #${jobId}`;
+            document.getElementById('paymentModal').classList.add('show');
+            document.getElementById('payment-message').style.display = 'none';
+            document.getElementById('payBtn').disabled = true;
+            document.getElementById('payBtn').textContent = 'Loading...';
+
+            try {
+                // Create payment intent
+                const res = await authFetch(`${API_BASE}/client/create-payment-intent`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_id: jobId })
+                });
+                const data = await res.json();
+
+                if (!data.success || !data.client_secret) {
+                    throw new Error(data.message || 'Failed to initialize payment');
+                }
+
+                // Initialize Stripe
+                stripe = Stripe('pk_test_placeholder'); // Replace with actual publishable key from env
+                elements = stripe.elements({ clientSecret: data.client_secret });
+
+                const paymentElement = elements.create('payment');
+                paymentElement.mount('#payment-element');
+
+                paymentElement.on('ready', () => {
+                    document.getElementById('payBtn').disabled = false;
+                    document.getElementById('payBtn').textContent = 'Pay Now';
+                });
+
+            } catch (e) {
+                showPaymentError(e.message || 'Failed to load payment form');
             }
+        }
+
+        function closePaymentModal() {
+            document.getElementById('paymentModal').classList.remove('show');
+            if (elements) {
+                elements.getElement('payment')?.destroy();
+            }
+            elements = null;
+            paymentJobId = null;
+        }
+
+        function showPaymentError(msg) {
+            const el = document.getElementById('payment-message');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('payBtn').disabled = false;
+            document.getElementById('payBtn').textContent = 'Pay Now';
+        }
+
+        async function submitPayment() {
+            if (!stripe || !elements) return;
+
+            document.getElementById('payBtn').disabled = true;
+            document.getElementById('payBtn').textContent = 'Processing...';
+            document.getElementById('payment-message').style.display = 'none';
+
+            const { error } = await stripe.confirmPayment({
+                elements,
+                confirmParams: {
+                    return_url: window.location.origin + window.location.pathname + '?payment=success&job=' + paymentJobId,
+                }
+            });
+
+            if (error) {
+                showPaymentError(error.message);
+            }
+        }
+
+        // Check for payment success redirect
+        function checkPaymentSuccess() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('payment') === 'success') {
+                const jobId = params.get('job');
+                window.history.replaceState({}, document.title, window.location.pathname);
+                showToast('Payment successful! Thank you.', 'success');
+                loadDashboard();
+            }
+        }
+
+        // Handle magic link token from URL
+        async function handleMagicLink() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+
+            if (!token) return false;
+
+            // Clear token from URL without reload
+            window.history.replaceState({}, document.title, window.location.pathname);
+
+            showToast('Verifying your login link...', 'info');
+
+            try {
+                const res = await fetch(`${API_BASE}/client/verify-magic-link`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const data = await res.json();
+
+                if (data.success && data.authToken) {
+                    currentCustomer = {
+                        id: data.customer_id,
+                        name: data.name || data.email,
+                        company: data.company_name
+                    };
+                    localStorage.setItem('client_user', JSON.stringify(currentCustomer));
+                    authToken = data.authToken;
+                    localStorage.setItem('client_token', authToken);
+                    resetSessionTimer();
+                    showMainApp();
+                    loadDashboard();
+                    startPolling();
+                    showToast('Signed in successfully!', 'success');
+                    return true;
+                } else {
+                    showToast(data.message || 'Invalid or expired link', 'error');
+                    return false;
+                }
+            } catch (e) {
+                showToast('Could not verify login link', 'error');
+                return false;
+            }
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', async () => {
+            // First check for magic link token
+            const magicLinkHandled = await handleMagicLink();
+
+            if (!magicLinkHandled) {
+                // Normal init - check saved session
+                const saved = localStorage.getItem('client_user');
+                const savedToken = localStorage.getItem('client_token');
+                if (saved && savedToken) {
+                    currentCustomer = JSON.parse(saved);
+                    authToken = savedToken;
+                    showMainApp();
+                    loadDashboard();
+                    startPolling();
+                    // Check for payment success redirect
+                    checkPaymentSuccess();
+                }
+            }
+
             document.getElementById('pinInput').addEventListener('keypress', e => {
                 if (e.key === 'Enter') login();
             });
