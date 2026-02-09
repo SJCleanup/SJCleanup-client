@@ -1600,7 +1600,15 @@
 
                 paymentElement.on('loaderror', (event) => {
                     console.error('Stripe element load error:', event);
-                    showPaymentError('Failed to load payment form. Please refresh and try again.');
+                    const errorMsg = event.error?.message || 'Unknown error';
+                    showPaymentError('Stripe error: ' + errorMsg);
+                });
+
+                // Also listen for general errors
+                paymentElement.on('change', (event) => {
+                    if (event.error) {
+                        console.error('Stripe element change error:', event.error);
+                    }
                 });
 
             } catch (e) {
