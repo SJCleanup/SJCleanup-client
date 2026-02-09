@@ -1184,12 +1184,12 @@
                     </div>
                     ${job.status === 'quote_sent' ? `
                         <div class="quote-actions">
-                            <button class="btn btn-success" onclick="approveQuote(${job.id})">Approve Quote</button>
-                            <button class="btn btn-outline" onclick="declineQuote(${job.id})">Decline</button>
+                            <button class="btn-pay" style="width:100%;margin-bottom:8px;" onclick="openPaymentModal(${job.id}, ${job.price_customer}, true)">Pay to Confirm - ${formatCurrency(job.price_customer)}</button>
+                            <button class="btn btn-outline" onclick="declineQuote(${job.id})">Decline Quote</button>
                         </div>
                     ` : ''}
                     ${(job.status === 'approved' || job.status === 'scheduled' || job.status === 'pending_payment') && job.payment_status !== 'paid' ? `
-                        <button class="btn-pay" onclick="openPaymentModal(${job.id}, ${job.price_customer})">Pay Now - ${formatCurrency(job.price_customer)}</button>
+                        <button class="btn-pay" onclick="openPaymentModal(${job.id}, ${job.price_customer}, false)">Pay Now - ${formatCurrency(job.price_customer)}</button>
                     ` : ''}
                     ${job.payment_status === 'paid' ? `
                         <div style="color: var(--green); font-weight: 500; margin-top: 12px;">&#10003; Paid</div>
@@ -1551,22 +1551,24 @@
         let stripe = null;
         let elements = null;
         let paymentJobId = null;
+        let paymentIsQuote = false;
 
-        async function openPaymentModal(jobId, amount) {
+        async function openPaymentModal(jobId, amount, isQuote = false) {
             paymentJobId = jobId;
+            paymentIsQuote = isQuote;
             document.getElementById('paymentAmount').textContent = formatCurrency(amount);
-            document.getElementById('paymentJobInfo').textContent = `Job #${jobId}`;
+            document.getElementById('paymentJobInfo').textContent = isQuote ? `Quote #${jobId} - Pay to confirm your booking` : `Job #${jobId}`;
             document.getElementById('paymentModal').classList.add('show');
             document.getElementById('payment-message').style.display = 'none';
             document.getElementById('payBtn').disabled = true;
             document.getElementById('payBtn').textContent = 'Loading...';
 
             try {
-                // Create payment intent
+                // Create payment intent (also approves quote if needed)
                 const res = await authFetch(`${API_BASE}/client/create-payment-intent`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ job_id: jobId })
+                    body: JSON.stringify({ job_id: jobId, approve_quote: isQuote })
                 });
                 const data = await res.json();
 
@@ -1583,7 +1585,7 @@
 
                 paymentElement.on('ready', () => {
                     document.getElementById('payBtn').disabled = false;
-                    document.getElementById('payBtn').textContent = 'Pay Now';
+                    document.getElementById('payBtn').textContent = isQuote ? 'Pay & Confirm Booking' : 'Pay Now';
                 });
 
             } catch (e) {
