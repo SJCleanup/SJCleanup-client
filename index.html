@@ -1577,7 +1577,7 @@
                 }
 
                 // Initialize Stripe
-                stripe = Stripe('pk_live_51SmgIkKkqQsTA0rWf3LTQLRuHkkah3cPKYpq6jIyWen7cIFNeZcyxEb1ceNBoYOSSfs69IygGaIR76f7g6MoZhxb00a5HE8bUH');
+                stripe = Stripe('pk_test_51SmgIx4IZzwSgAbJc7XAAtvdqS3KpnDa5txYFQSJjeapoShXKcP1Tl2lu6V8a8JAKOuSJVySvSzk13sIpdDa1QRI00b0Wb1MHY');
                 elements = stripe.elements({ clientSecret: data.client_secret });
 
                 const paymentElement = elements.create('payment');
