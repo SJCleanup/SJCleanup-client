@@ -1659,8 +1659,28 @@
             if (params.get('payment') === 'success') {
                 const jobId = params.get('job');
                 window.history.replaceState({}, document.title, window.location.pathname);
-                showToast('Payment successful! Thank you.', 'success');
-                loadDashboard();
+
+                // Confirm payment with Xano backend
+                if (jobId) {
+                    authFetch(`${API_BASE}/client/confirm-payment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: parseInt(jobId) })
+                    }).then(res => {
+                        if (res.ok) {
+                            showToast('Payment successful! Thank you.', 'success');
+                        } else {
+                            showToast('Payment received - confirming with server...', 'info');
+                        }
+                        loadDashboard();
+                    }).catch(() => {
+                        showToast('Payment received - confirming with server...', 'info');
+                        loadDashboard();
+                    });
+                } else {
+                    showToast('Payment successful! Thank you.', 'success');
+                    loadDashboard();
+                }
             }
         }
 
